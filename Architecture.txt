@@ -1,0 +1,89 @@
+┌────────────────────────────────────────────────────────┐
+│            SINGLE-THREADED PIPELINE                    │
+│        (All in one thread - simple & clear)            │
+└────────────────────────────────────────────────────────┘
+
+         Main Thread (runs runMainLoop())
+         =====================================
+
+    ┌─────────────────────────────────────┐
+    │  while (m_running) {                │
+    │                                     │
+    │    [1] Acquire Frame                │
+    │         │                           │
+    │         ▼                           │
+    │    ┌─────────────────┐             │
+    │    │ PcieCamera      │             │
+    │    │ acquireFrame()  │◄──── SDK buffer
+    │    └────────┬────────┘             │
+    │             │                       │
+    │             │ uint8_t* + stride     │
+    │             ▼                       │
+    │    ┌─────────────────┐             │
+    │    │ FrameCropper    │             │
+    │    │ crop()          │             │
+    │    └────────┬────────┘             │
+    │             │                       │
+    │             │ m_croppedFrameBuffer  │
+    │             │ (internal vector)     │
+    │             ▼                       │
+    │    ┌─────────────────┐             │
+    │    │ SdiOutput       │             │
+    │    │ sendFrame()     │             │
+    │    └────────┬────────┘             │
+    │             │                       │
+    │             ▼                       │
+    │    ┌─────────────────┐             │
+    │    │ releaseFrame()  │             │
+    │    └─────────────────┘             │
+    │             │                       │
+    │             ▼                       │
+    │    [Diagnostics / Stats]           │
+    │                                     │
+    │  } // end while                     │
+    └─────────────────────────────────────┘
+              │
+              ▼
+       [SDI Hardware Output]
+```
+
+---
+
+## זרימת נתונים מפורטת:
+```
+MEMORY BUFFERS (Single Thread):
+================================
+
+┌──────────────────┐
+│ Camera SDK       │  ← Managed by Ximea/vendor
+│ Internal Buffers │     (circular buffer inside SDK)
+└────────┬─────────┘
+         │
+         │ acquireFrame() returns pointer
+         │ (no copy - just pointer to SDK buffer)
+         │
+         ▼
+┌──────────────────────────────────────┐
+│ srcFrame (uint8_t*)                  │ ← Stack pointer
+│ Points to SDK buffer                 │   (ephemeral)
+└────────┬─────────────────────────────┘
+         │
+         │ Crop operation copies data
+         │
+         ▼
+┌──────────────────────────────────────┐
+│ m_croppedFrameBuffer                 │ ← Member variable
+│ std::vector<uint8_t>                 │   (reused every frame)
+│ Owned by PipelineController          │
+└────────┬─────────────────────────────┘
+         │
+         │ sendFrame() - SDI driver copies
+         │
+         ▼
+┌──────────────────────────────────────┐
+│ SDI Driver Buffer                    │ ← Kernel/driver space
+│ (DMA buffer)                         │
+└──────────────────────────────────────┘
+         │
+         ▼
+    [Physical SDI]
