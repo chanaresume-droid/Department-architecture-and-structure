@@ -369,3 +369,25 @@ inline void PipelineController::runMainLoop()
 
     // Any shutdown / stop logic for camera and SDI would go here.
 }
+
+/*
+ * For high-FPS (>60fps) or heavy processing:
+ * 
+ * Thread 1 (Capture):           Thread 2 (Process):
+ * ===================           ===================
+ * while(running) {              while(running) {
+ *   frame = acquire()             frame = ring.pop()
+ *   ring.push(frame)              crop(frame)
+ *   release(frame)                sdi.send(frame)
+ * }                             }
+ * 
+ * Advantages:
+ * - Camera never waits for SDI
+ * - Better CPU utilization
+ * - Can handle burst loads
+ * 
+ * Need to add:
+ * - LockFreeRingBuffer<Frame, 4>
+ * - std::thread objects
+ * - Proper shutdown synchronization
+ */
