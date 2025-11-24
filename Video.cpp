@@ -391,3 +391,101 @@ inline void PipelineController::runMainLoop()
  * - std::thread objects
  * - Proper shutdown synchronization
  */
+
+ Handling High Frame Rates, Timing, and Error States in a Military-Grade Deployment
+High Frame Rates (60 FPS and above)
+
+When operating at 60fps or higher, the main focus is ensuring the pipeline stays deterministic and avoids unnecessary overhead:
+
+1. Zero-copy where possible
+
+Whenever the camera SDK provides frame buffers, I avoid creating additional copies.
+The only copy I keep is the one that is absolutely required (e.g., when preparing a cropped buffer for SDI output).
+
+2. Full memory pre-allocation
+
+All processing buffers (crop buffers, temporary buffers, etc.) are allocated in advance.
+This prevents new/delete or malloc/free during runtime, which helps avoid jitter and unpredictable stalls.
+
+3. Thread separation
+
+To keep both capture and output responsive:
+
+Capture thread – interacts only with the camera SDK (acquireFrame / releaseFrame).
+
+Processing / SDI thread – performs crop and writes the processed frame to the SDI device.
+
+Optional diagnostics thread – computes FPS, tracks errors, and reports system health.
+
+This prevents I/O operations from being blocked by processing, and vice versa.
+
+4. Load monitoring
+
+I measure the processing time per stage (capture, crop, output).
+If the total time approaches the frame interval, it’s better to drop a frame than to let latency accumulate to unmanageable levels.
+
+Timing and Synchronization
+1. Monotonic clock usage
+
+All timing (frame interval, FPS calculation, latency measurement) should rely on a monotonic clock, not on the system wall clock, to avoid jumps caused by NTP or system adjustments.
+
+2. Keeping latency bounded
+
+The pipeline should avoid building up a long queue of pending frames.
+If the processor is overloaded, the recommended strategy is “latest frame wins” — discard older buffers and keep only the most recent frame.
+
+3. Support for hardware timestamps
+
+If the camera SDK provides per-frame timestamps, they should propagate through the pipeline and optionally into the SDI metadata or recording system.
+This ensures synchronization with external systems (e.g., radar, other sensors) in multi-sensor deployments.
+
+Error Handling in Military-Grade Systems
+
+In this type of environment, availability is at least as important as performance.
+Therefore, every component should implement its own recovery layer.
+
+1. Per-component recovery mechanisms
+
+Camera side:
+
+Retry on transient timeouts
+
+Reset the streaming interface
+
+If required, perform a full reconnect()
+
+SDI side:
+
+Handle underruns and timeouts
+
+Attempt driver re-initialization
+
+Restore negotiated format if lost
+
+2. Pipeline-level behavior
+
+Single transient error (one timeout or dropped frame):
+
+Log it and continue running normally.
+
+Repeated errors (e.g., N failures in a row):
+
+Switch to a degraded mode (lower FPS / resolution)
+
+Or perform a controlled shutdown and report a clear error state.
+
+The pipeline should avoid ambiguous “half-alive” states.
+
+3. Monitoring and System Health Visibility
+
+The system should maintain counters and metrics such as:
+
+Number of dropped frames
+
+Number of SDI errors
+
+Effective average FPS
+
+Number of recovery actions taken
+
+These metrics should be exposed to a higher-level monitoring layer (CLI / GUI / SNMP) so that operators can see whether the system is functioning correctly.
