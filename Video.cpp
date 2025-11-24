@@ -489,3 +489,7 @@ Effective average FPS
 Number of recovery actions taken
 
 These metrics should be exposed to a higher-level monitoring layer (CLI / GUI / SNMP) so that operators can see whether the system is functioning correctly.
+    למערכות וידאו בזמן אמת:
+Nano → טוב ללייט
+Xavier NX → מאוזן
+AGX Xavier / Orin → כבדות
